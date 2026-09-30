@@ -1,15 +1,7 @@
 /**
  * ============================================================
- * WHATSAPP 24/7 AUTO-REPLY BOT
- * Railway + Persistent Volume
- * ============================================================
- *
- * WhatsApp Auth Storage:
- * /app/data/auth_info
- *
- * Railway Volume Mount:
- * /app/data
- *
+ * WHATSAPP 24/7 RAILWAY BOT
+ * Persistent Auth + Pairing Code + Auto Reply
  * ============================================================
  */
 
@@ -17,33 +9,46 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  delay
+  delay,
+  Browsers
 } = require('@whiskeysockets/baileys');
 
 const pino = require('pino');
 const express = require('express');
 
 // ============================================================
-// EXPRESS / RAILWAY CONFIGURATION
+// RAILWAY CONFIG
 // ============================================================
 
 const app = express();
 
 const PORT = process.env.PORT || 8080;
 
-// Railway persistent volume path
+// Railway Volume:
+// /app/data
+//
+// WhatsApp authentication:
+// /app/data/auth_info
+
 const AUTH_DIR =
   process.env.WHATSAPP_AUTH_DIR ||
   '/app/data/auth_info';
 
 let sock = null;
 let pairingRequested = false;
+let starting = false;
 
 // ============================================================
-// START WHATSAPP
+// START WHATSAPP BOT
 // ============================================================
 
 async function startBot() {
+
+  if (starting) {
+    return;
+  }
+
+  starting = true;
 
   try {
 
@@ -57,7 +62,7 @@ async function startBot() {
     );
 
     // --------------------------------------------------------
-    // LOAD PERSISTENT WHATSAPP SESSION
+    // LOAD AUTH STATE
     // --------------------------------------------------------
 
     const {
@@ -81,33 +86,58 @@ async function startBot() {
         level: 'silent'
       }),
 
-      browser: [
-        'Ubuntu',
-        'Chrome',
-        '20.0.04'
-      ],
+      /*
+       * IMPORTANT:
+       *
+       * Do NOT use a custom browser label.
+       *
+       * Browsers.ubuntu('Chrome') creates a
+       * canonical WEB_BROWSER identity.
+       */
+      browser: Browsers.ubuntu('Chrome'),
 
       syncFullHistory: false,
 
       connectTimeoutMs: 60000,
 
-      defaultQueryTimeoutMs: 0,
+      defaultQueryTimeoutMs: 60000,
 
-      keepAliveIntervalMs: 10000
+      keepAliveIntervalMs: 10000,
+
+      markOnlineOnConnect: false
 
     });
 
     // --------------------------------------------------------
-    // SAVE CREDENTIAL CHANGES
+    // SAVE CREDENTIALS
     // --------------------------------------------------------
 
     sock.ev.on(
       'creds.update',
-      saveCreds
+      async () => {
+
+        try {
+
+          await saveCreds();
+
+          console.log(
+            '💾 WhatsApp credentials saved'
+          );
+
+        } catch (error) {
+
+          console.error(
+            '❌ Could not save credentials:',
+            error.message
+          );
+
+        }
+
+      }
     );
 
     // ========================================================
-    // WHATSAPP CONNECTION EVENTS
+    // CONNECTION UPDATE
     // ========================================================
 
     sock.ev.on(
@@ -120,9 +150,9 @@ async function startBot() {
           qr
         } = update;
 
-        // ====================================================
-        // REQUEST PAIRING CODE
-        // ====================================================
+        // ----------------------------------------------------
+        // PAIRING CODE
+        // ----------------------------------------------------
 
         if (
           qr &&
@@ -142,7 +172,7 @@ async function startBot() {
 
           console.log('');
           console.log(
-            '📱 WhatsApp pairing required'
+            '📱 WHATSAPP PAIRING REQUIRED'
           );
 
           console.log(
@@ -151,8 +181,10 @@ async function startBot() {
 
           try {
 
-            // Give socket time to stabilize
-            await delay(5000);
+            /*
+             * Give the WebSocket a moment to stabilize.
+             */
+            await delay(3000);
 
             const code =
               await sock.requestPairingCode(
@@ -165,7 +197,7 @@ async function startBot() {
             );
 
             console.log(
-              '🔥 YOUR WHATSAPP PAIRING CODE'
+              '🔥 YOUR NEW WHATSAPP PAIRING CODE'
             );
 
             console.log('');
@@ -202,68 +234,17 @@ async function startBot() {
 
         }
 
-        // ====================================================
-        // CONNECTION CLOSED
-        // ====================================================
+        // ----------------------------------------------------
+        // CONNECTION OPEN
+        // ----------------------------------------------------
 
-        if (connection === 'close') {
+        if (
+          connection === 'open'
+        ) {
+
+          starting = false;
 
           pairingRequested = false;
-
-          const statusCode =
-            lastDisconnect
-              ?.error
-              ?.output
-              ?.statusCode;
-
-          const shouldReconnect =
-            statusCode !==
-            DisconnectReason.loggedOut;
-
-          console.log('');
-          console.log(
-            `⚠️ WhatsApp connection closed`
-          );
-
-          console.log(
-            `Status Code: ${statusCode}`
-          );
-
-          // --------------------------------------------------
-          // RECONNECT
-          // --------------------------------------------------
-
-          if (shouldReconnect) {
-
-            console.log(
-              '🔄 Reconnecting in 5 seconds...'
-            );
-
-            setTimeout(
-              startBot,
-              5000
-            );
-
-          } else {
-
-            console.log('');
-            console.log(
-              '❌ WhatsApp session was logged out.'
-            );
-
-            console.log(
-              'Please link WhatsApp again.'
-            );
-
-          }
-
-        }
-
-        // ====================================================
-        // CONNECTION OPEN
-        // ====================================================
-
-        else if (connection === 'open') {
 
           console.log('');
           console.log(
@@ -279,11 +260,11 @@ async function startBot() {
           );
 
           console.log(
-            '✅ 24/7 Railway bot is running'
+            '✅ 24/7 Railway bot running'
           );
 
           console.log(
-            `✅ Persistent Auth: ${AUTH_DIR}`
+            `🔐 Persistent Auth: ${AUTH_DIR}`
           );
 
           console.log(
@@ -291,6 +272,110 @@ async function startBot() {
           );
 
           console.log('');
+
+        }
+
+        // ----------------------------------------------------
+        // CONNECTION CLOSED
+        // ----------------------------------------------------
+
+        if (
+          connection === 'close'
+        ) {
+
+          starting = false;
+
+          const statusCode =
+            lastDisconnect
+              ?.error
+              ?.output
+              ?.statusCode;
+
+          const errorMessage =
+            lastDisconnect
+              ?.error
+              ?.message || '';
+
+          console.log('');
+          console.log(
+            '⚠️ WHATSAPP CONNECTION CLOSED'
+          );
+
+          console.log(
+            `Status Code: ${statusCode}`
+          );
+
+          console.log(
+            `Message: ${errorMessage}`
+          );
+
+          /*
+           * 401 = Logged out / invalid session
+           *
+           * This is the only normal terminal
+           * authentication state.
+           */
+          const loggedOut =
+            statusCode ===
+            DisconnectReason.loggedOut;
+
+          if (loggedOut) {
+
+            console.log('');
+            console.log(
+              '❌ WhatsApp session is logged out.'
+            );
+
+            console.log(
+              'A fresh pairing is required.'
+            );
+
+            pairingRequested = false;
+
+            return;
+          }
+
+          /*
+           * 515 = restart required
+           *
+           * This can happen immediately after
+           * successful pairing.
+           *
+           * It is NOT treated as logout.
+           */
+
+          if (
+            statusCode ===
+            DisconnectReason.restartRequired
+          ) {
+
+            console.log(
+              '🔄 Restart required after pairing.'
+            );
+
+          } else {
+
+            console.log(
+              '🔄 Temporary WhatsApp disconnect.'
+            );
+
+          }
+
+          pairingRequested = false;
+
+          /*
+           * Reconnect using the credentials
+           * already saved in /app/data/auth_info.
+           */
+
+          setTimeout(
+            () => {
+
+              startBot();
+
+            },
+            2000
+          );
 
         }
 
@@ -310,7 +395,6 @@ async function startBot() {
 
         try {
 
-          // Only process new incoming messages
           if (
             type !== 'notify'
           ) {
@@ -320,7 +404,6 @@ async function startBot() {
           const msg =
             messages[0];
 
-          // Ignore invalid messages
           if (
             !msg ||
             !msg.message ||
@@ -328,10 +411,6 @@ async function startBot() {
           ) {
             return;
           }
-
-          // --------------------------------------------------
-          // CUSTOMER INFORMATION
-          // --------------------------------------------------
 
           const from =
             msg.key.remoteJid;
@@ -341,7 +420,7 @@ async function startBot() {
             'Customer';
 
           // --------------------------------------------------
-          // READ MESSAGE
+          // EXTRACT MESSAGE
           // --------------------------------------------------
 
           const text = (
@@ -380,19 +459,15 @@ async function startBot() {
           );
 
           // ==================================================
-          // GREETING / PRICE AUTO REPLY
+          // GREETING / PRICE
           // ==================================================
 
           if (
 
             text === 'hi' ||
-
             text === 'hello' ||
-
             text === 'namaste' ||
-
             text === 'price' ||
-
             text === 'rate'
 
           ) {
@@ -409,22 +484,22 @@ aapka swagat hai. 🛍️
 
 🎧 Wireless Earbuds
 
-Retail Price: ₹599
-Bulk Price: ₹420
+Retail: ₹599
+Bulk: ₹420
 
 ━━━━━━━━━━━━━━━━━━
 
 ⌚ Smartwatch Ultra
 
-Retail Price: ₹1,299
-Bulk Price: ₹950
+Retail: ₹1,299
+Bulk: ₹950
 
 ━━━━━━━━━━━━━━━━━━
 
 🔌 Fast Charger 65W
 
-Retail Price: ₹499
-Bulk Price: ₹310
+Retail: ₹499
+Bulk: ₹310
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -442,7 +517,7 @@ Thank you! 🙏
             );
 
             console.log(
-              `✅ Auto reply sent to ${name}`
+              `✅ Reply sent to ${name}`
             );
 
           }
@@ -452,32 +527,27 @@ Thank you! 🙏
           // ==================================================
 
           else if (
+
             text === 'menu' ||
             text === 'help'
+
           ) {
-
-            const menuReply = `
-Namaste ${name} ji! 🙏
-
-Aap kya jaana chahte hain?
-
-1️⃣ Product Price
-2️⃣ Product Catalog
-3️⃣ Bulk Order
-4️⃣ Customer Support
-
-Reply karein:
-
-PRICE
-CATALOG
-BULK
-SUPPORT
-`;
 
             await sock.sendMessage(
               from,
               {
-                text: menuReply
+                text: `
+Namaste ${name} ji! 🙏
+
+Aap kya jaana chahte hain?
+
+1️⃣ PRICE
+2️⃣ CATALOG
+3️⃣ BULK
+4️⃣ SUPPORT
+
+Bas option ka naam reply karein.
+`
               }
             );
 
@@ -491,8 +561,11 @@ SUPPORT
             text === 'catalog'
           ) {
 
-            const catalogReply = `
-📦 *OUR PRODUCT CATALOG*
+            await sock.sendMessage(
+              from,
+              {
+                text: `
+📦 *PRODUCT CATALOG*
 
 🎧 Wireless Earbuds
 ₹599 Retail
@@ -506,28 +579,26 @@ SUPPORT
 ₹499 Retail
 ₹310 Bulk
 
-📲 Product order karne ke liye
-product ka naam bhejein.
-`;
-
-            await sock.sendMessage(
-              from,
-              {
-                text: catalogReply
+📲 Order ke liye product ka
+naam bhejein.
+`
               }
             );
 
           }
 
           // ==================================================
-          // BULK ORDER
+          // BULK
           // ==================================================
 
           else if (
             text === 'bulk'
           ) {
 
-            const bulkReply = `
+            await sock.sendMessage(
+              from,
+              {
+                text: `
 📦 *BULK ORDER*
 
 Bulk pricing available hai.
@@ -541,12 +612,7 @@ Please send:
 
 Hamari team aapko
 bulk quotation degi. 🙏
-`;
-
-            await sock.sendMessage(
-              from,
-              {
-                text: bulkReply
+`
               }
             );
 
@@ -560,7 +626,10 @@ bulk quotation degi. 🙏
             text === 'support'
           ) {
 
-            const supportReply = `
+            await sock.sendMessage(
+              from,
+              {
+                text: `
 📞 *CUSTOMER SUPPORT*
 
 Aap apni query yahan
@@ -568,12 +637,7 @@ message kar sakte hain.
 
 Our support team will
 contact you shortly. 🙏
-`;
-
-            await sock.sendMessage(
-              from,
-              {
-                text: supportReply
+`
               }
             );
 
@@ -591,31 +655,27 @@ contact you shortly. 🙏
       }
     );
 
-  }
+  } catch (error) {
 
-  // ========================================================
-  // BOT STARTUP ERROR
-  // ========================================================
-
-  catch (error) {
+    starting = false;
 
     console.error('');
     console.error(
-      '❌ WHATSAPP BOT STARTUP ERROR'
+      '❌ WHATSAPP STARTUP ERROR'
     );
 
     console.error(
       error
     );
 
-    console.error('');
-
-    console.log(
-      '🔄 Restarting bot in 10 seconds...'
+    console.error(
+      '🔄 Restarting in 10 seconds...'
     );
 
     setTimeout(
-      startBot,
+      () => {
+        startBot();
+      },
       10000
     );
 
@@ -624,7 +684,7 @@ contact you shortly. 🙏
 }
 
 // ============================================================
-// RAILWAY HEALTH CHECK
+// RAILWAY HEALTH ROUTE
 // ============================================================
 
 app.get(
@@ -667,7 +727,7 @@ app.get(
 );
 
 // ============================================================
-// START EXPRESS SERVER
+// START RAILWAY SERVER
 // ============================================================
 
 app.listen(
@@ -697,7 +757,6 @@ app.listen(
 
     console.log('');
 
-    // Start WhatsApp bot
     startBot();
 
   }
