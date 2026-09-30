@@ -1,6 +1,16 @@
 /**
- * 24/7 WHATSAPP AUTO-REPLY BOT FOR RAILWAY
- * Persistent WhatsApp Auth + Auto Reply
+ * ============================================================
+ * WHATSAPP 24/7 AUTO-REPLY BOT
+ * Railway + Persistent Volume
+ * ============================================================
+ *
+ * WhatsApp Auth Storage:
+ * /app/data/auth_info
+ *
+ * Railway Volume Mount:
+ * /app/data
+ *
+ * ============================================================
  */
 
 const {
@@ -13,45 +23,58 @@ const {
 const pino = require('pino');
 const express = require('express');
 
-// ==================================================
-// RAILWAY SERVER CONFIG
-// ==================================================
+// ============================================================
+// EXPRESS / RAILWAY CONFIGURATION
+// ============================================================
 
 const app = express();
 
 const PORT = process.env.PORT || 8080;
 
-// IMPORTANT:
-// Railway Volume is mounted at /app/data
-// WhatsApp session will permanently stay here.
+// Railway persistent volume path
 const AUTH_DIR =
-  process.env.WHATSAPP_AUTH_DIR || '/app/data/auth_info';
+  process.env.WHATSAPP_AUTH_DIR ||
+  '/app/data/auth_info';
 
 let sock = null;
 let pairingRequested = false;
 
-// ==================================================
-// START WHATSAPP BOT
-// ==================================================
+// ============================================================
+// START WHATSAPP
+// ============================================================
 
 async function startBot() {
+
   try {
+
     console.log('');
-    console.log('========================================');
-    console.log('🚀 STARTING WHATSAPP 24/7 BOT');
-    console.log('========================================');
+    console.log('================================================');
+    console.log('🚀 STARTING WHATSAPP 24/7 CLOUD BOT');
+    console.log('================================================');
 
-    console.log(`🔐 WhatsApp Auth Directory: ${AUTH_DIR}`);
+    console.log(
+      `🔐 WhatsApp Auth Directory: ${AUTH_DIR}`
+    );
 
-    // Load persistent WhatsApp authentication
-    const { state, saveCreds } =
-      await useMultiFileAuthState(AUTH_DIR);
+    // --------------------------------------------------------
+    // LOAD PERSISTENT WHATSAPP SESSION
+    // --------------------------------------------------------
 
-    // ==================================================
+    const {
+      state,
+      saveCreds
+    } = await useMultiFileAuthState(AUTH_DIR);
+
+    console.log(
+      '✅ WhatsApp authentication storage loaded'
+    );
+
+    // --------------------------------------------------------
     // CREATE WHATSAPP SOCKET
-    // ==================================================
+    // --------------------------------------------------------
 
     sock = makeWASocket({
+
       auth: state,
 
       logger: pino({
@@ -71,17 +94,21 @@ async function startBot() {
       defaultQueryTimeoutMs: 0,
 
       keepAliveIntervalMs: 10000
+
     });
 
-    // Save WhatsApp credentials whenever they change
+    // --------------------------------------------------------
+    // SAVE CREDENTIAL CHANGES
+    // --------------------------------------------------------
+
     sock.ev.on(
       'creds.update',
       saveCreds
     );
 
-    // ==================================================
-    // CONNECTION UPDATE
-    // ==================================================
+    // ========================================================
+    // WHATSAPP CONNECTION EVENTS
+    // ========================================================
 
     sock.ev.on(
       'connection.update',
@@ -93,9 +120,9 @@ async function startBot() {
           qr
         } = update;
 
-        // ==================================================
-        // PAIRING CODE
-        // ==================================================
+        // ====================================================
+        // REQUEST PAIRING CODE
+        // ====================================================
 
         if (
           qr &&
@@ -108,16 +135,23 @@ async function startBot() {
           const phoneNumber = (
             process.env.PHONE_NUMBER ||
             '917087561933'
-          ).replace(/[^0-9]/g, '');
+          ).replace(
+            /[^0-9]/g,
+            ''
+          );
 
           console.log('');
           console.log(
-            `📱 Requesting WhatsApp Pairing Code for ${phoneNumber}...`
+            '📱 WhatsApp pairing required'
+          );
+
+          console.log(
+            `📞 Phone: ${phoneNumber}`
           );
 
           try {
 
-            // Give WhatsApp socket time to stabilize
+            // Give socket time to stabilize
             await delay(5000);
 
             const code =
@@ -127,22 +161,20 @@ async function startBot() {
 
             console.log('');
             console.log(
-              '========================================'
+              '================================================'
             );
 
             console.log(
               '🔥 YOUR WHATSAPP PAIRING CODE'
             );
 
+            console.log('');
             console.log(
-              '👉 ' + code
-            );
-
-            console.log(
-              '========================================'
+              `👉 ${code}`
             );
 
             console.log('');
+
             console.log(
               'WhatsApp → Linked Devices →'
             );
@@ -151,42 +183,60 @@ async function startBot() {
               'Link with phone number'
             );
 
+            console.log(
+              '================================================'
+            );
+
             console.log('');
 
           } catch (error) {
 
             console.error(
-              '❌ Pairing code error:',
+              '❌ Pairing Code Error:',
               error.message
             );
 
             pairingRequested = false;
+
           }
+
         }
 
-        // ==================================================
+        // ====================================================
         // CONNECTION CLOSED
-        // ==================================================
+        // ====================================================
 
         if (connection === 'close') {
 
           pairingRequested = false;
 
           const statusCode =
-            lastDisconnect?.error?.output?.statusCode;
+            lastDisconnect
+              ?.error
+              ?.output
+              ?.statusCode;
 
           const shouldReconnect =
-            statusCode !== DisconnectReason.loggedOut;
+            statusCode !==
+            DisconnectReason.loggedOut;
 
           console.log('');
           console.log(
-            `⚠️ WhatsApp connection closed. Status: ${statusCode}`
+            `⚠️ WhatsApp connection closed`
           );
+
+          console.log(
+            `Status Code: ${statusCode}`
+          );
+
+          // --------------------------------------------------
+          // RECONNECT
+          // --------------------------------------------------
 
           if (shouldReconnect) {
 
             console.log(
-              '🔄 Reconnecting WhatsApp in 5 seconds...'
+              '🔄 Reconnecting in 5 seconds...'
             );
 
             setTimeout(
@@ -196,25 +246,28 @@ async function startBot() {
 
           } else {
 
+            console.log('');
             console.log(
-              '❌ WhatsApp session logged out.'
+              '❌ WhatsApp session was logged out.'
             );
 
             console.log(
-              'Please link the device again.'
+              'Please link WhatsApp again.'
             );
+
           }
+
         }
 
-        // ==================================================
+        // ====================================================
         // CONNECTION OPEN
-        // ==================================================
+        // ====================================================
 
         else if (connection === 'open') {
 
           console.log('');
           console.log(
-            '========================================'
+            '================================================'
           );
 
           console.log(
@@ -222,7 +275,11 @@ async function startBot() {
           );
 
           console.log(
-            '✅ 24/7 BOT RUNNING ON RAILWAY'
+            '✅ WhatsApp connected successfully'
+          );
+
+          console.log(
+            '✅ 24/7 Railway bot is running'
           );
 
           console.log(
@@ -230,30 +287,38 @@ async function startBot() {
           );
 
           console.log(
-            '========================================'
+            '================================================'
           );
 
           console.log('');
+
         }
+
       }
     );
 
-    // ==================================================
-    // INCOMING WHATSAPP MESSAGES
-    // ==================================================
+    // ========================================================
+    // INCOMING MESSAGES
+    // ========================================================
 
     sock.ev.on(
       'messages.upsert',
-      async ({ messages, type }) => {
+      async ({
+        messages,
+        type
+      }) => {
 
         try {
 
-          // Only process new messages
-          if (type !== 'notify') {
+          // Only process new incoming messages
+          if (
+            type !== 'notify'
+          ) {
             return;
           }
 
-          const msg = messages[0];
+          const msg =
+            messages[0];
 
           // Ignore invalid messages
           if (
@@ -264,6 +329,10 @@ async function startBot() {
             return;
           }
 
+          // --------------------------------------------------
+          // CUSTOMER INFORMATION
+          // --------------------------------------------------
+
           const from =
             msg.key.remoteJid;
 
@@ -271,23 +340,35 @@ async function startBot() {
             msg.pushName ||
             'Customer';
 
-          // ==================================================
-          // GET MESSAGE TEXT
-          // ==================================================
+          // --------------------------------------------------
+          // READ MESSAGE
+          // --------------------------------------------------
 
           const text = (
+
             msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            msg.message.imageMessage?.caption ||
-            msg.message.videoMessage?.caption ||
+
+            msg.message
+              .extendedTextMessage
+              ?.text ||
+
+            msg.message
+              .imageMessage
+              ?.caption ||
+
+            msg.message
+              .videoMessage
+              ?.caption ||
+
             ''
+
           )
             .trim()
             .toLowerCase();
 
           console.log('');
           console.log(
-            `📩 Incoming Message`
+            '📩 NEW WHATSAPP MESSAGE'
           );
 
           console.log(
@@ -299,15 +380,21 @@ async function startBot() {
           );
 
           // ==================================================
-          // AUTO REPLY
+          // GREETING / PRICE AUTO REPLY
           // ==================================================
 
           if (
+
             text === 'hi' ||
+
             text === 'hello' ||
+
             text === 'namaste' ||
+
             text === 'price' ||
+
             text === 'rate'
+
           ) {
 
             const reply = `
@@ -316,22 +403,33 @@ Namaste ${name} ji! 🙏
 Apex Wholesale & Retail mein
 aapka swagat hai. 🛍️
 
-📦 *Product Catalog*
+📦 *PRODUCT CATALOG*
 
-• Wireless Earbuds
-  Retail: ₹599
-  Bulk: ₹420
+━━━━━━━━━━━━━━━━━━
 
-• Smartwatch Ultra
-  Retail: ₹1,299
-  Bulk: ₹950
+🎧 Wireless Earbuds
 
-• Fast Charger 65W
-  Retail: ₹499
-  Bulk: ₹310
+Retail Price: ₹599
+Bulk Price: ₹420
 
-📲 Order ke liye product ka naam
-reply karein.
+━━━━━━━━━━━━━━━━━━
+
+⌚ Smartwatch Ultra
+
+Retail Price: ₹1,299
+Bulk Price: ₹950
+
+━━━━━━━━━━━━━━━━━━
+
+🔌 Fast Charger 65W
+
+Retail Price: ₹499
+Bulk Price: ₹310
+
+━━━━━━━━━━━━━━━━━━
+
+📲 Order ke liye product ka
+naam reply karein.
 
 Thank you! 🙏
 `;
@@ -346,30 +444,173 @@ Thank you! 🙏
             console.log(
               `✅ Auto reply sent to ${name}`
             );
+
+          }
+
+          // ==================================================
+          // MENU
+          // ==================================================
+
+          else if (
+            text === 'menu' ||
+            text === 'help'
+          ) {
+
+            const menuReply = `
+Namaste ${name} ji! 🙏
+
+Aap kya jaana chahte hain?
+
+1️⃣ Product Price
+2️⃣ Product Catalog
+3️⃣ Bulk Order
+4️⃣ Customer Support
+
+Reply karein:
+
+PRICE
+CATALOG
+BULK
+SUPPORT
+`;
+
+            await sock.sendMessage(
+              from,
+              {
+                text: menuReply
+              }
+            );
+
+          }
+
+          // ==================================================
+          // CATALOG
+          // ==================================================
+
+          else if (
+            text === 'catalog'
+          ) {
+
+            const catalogReply = `
+📦 *OUR PRODUCT CATALOG*
+
+🎧 Wireless Earbuds
+₹599 Retail
+₹420 Bulk
+
+⌚ Smartwatch Ultra
+₹1,299 Retail
+₹950 Bulk
+
+🔌 Fast Charger 65W
+₹499 Retail
+₹310 Bulk
+
+📲 Product order karne ke liye
+product ka naam bhejein.
+`;
+
+            await sock.sendMessage(
+              from,
+              {
+                text: catalogReply
+              }
+            );
+
+          }
+
+          // ==================================================
+          // BULK ORDER
+          // ==================================================
+
+          else if (
+            text === 'bulk'
+          ) {
+
+            const bulkReply = `
+📦 *BULK ORDER*
+
+Bulk pricing available hai.
+
+Please send:
+
+• Product Name
+• Quantity
+• Your Name
+• City
+
+Hamari team aapko
+bulk quotation degi. 🙏
+`;
+
+            await sock.sendMessage(
+              from,
+              {
+                text: bulkReply
+              }
+            );
+
+          }
+
+          // ==================================================
+          // SUPPORT
+          // ==================================================
+
+          else if (
+            text === 'support'
+          ) {
+
+            const supportReply = `
+📞 *CUSTOMER SUPPORT*
+
+Aap apni query yahan
+message kar sakte hain.
+
+Our support team will
+contact you shortly. 🙏
+`;
+
+            await sock.sendMessage(
+              from,
+              {
+                text: supportReply
+              }
+            );
+
           }
 
         } catch (error) {
 
           console.error(
-            '❌ Message processing error:',
+            '❌ Message Processing Error:',
             error.message
           );
+
         }
+
       }
     );
 
-  } catch (error) {
+  }
+
+  // ========================================================
+  // BOT STARTUP ERROR
+  // ========================================================
+
+  catch (error) {
 
     console.error('');
     console.error(
-      '❌ WhatsApp Bot Startup Error:'
+      '❌ WHATSAPP BOT STARTUP ERROR'
     );
 
     console.error(
       error
     );
 
-    console.error(
+    console.error('');
+
+    console.log(
       '🔄 Restarting bot in 10 seconds...'
     );
 
@@ -377,12 +618,14 @@ Thank you! 🙏
       startBot,
       10000
     );
+
   }
+
 }
 
-// ==================================================
+// ============================================================
 // RAILWAY HEALTH CHECK
-// ==================================================
+// ============================================================
 
 app.get(
   '/',
@@ -391,29 +634,41 @@ app.get(
     res.status(200).send(
       'WhatsApp 24/7 Bot is Healthy! 🚀'
     );
+
   }
 );
 
-// ==================================================
+// ============================================================
 // HEALTH API
-// ==================================================
+// ============================================================
 
 app.get(
   '/health',
   (req, res) => {
 
     res.status(200).json({
+
       status: 'ok',
-      whatsapp: sock ? 'initialized' : 'starting',
-      authDirectory: AUTH_DIR,
-      uptime: process.uptime()
+
+      whatsapp:
+        sock
+          ? 'initialized'
+          : 'starting',
+
+      authDirectory:
+        AUTH_DIR,
+
+      uptime:
+        process.uptime()
+
     });
+
   }
 );
 
-// ==================================================
-// START RAILWAY HTTP SERVER
-// ==================================================
+// ============================================================
+// START EXPRESS SERVER
+// ============================================================
 
 app.listen(
   PORT,
@@ -421,22 +676,29 @@ app.listen(
 
     console.log('');
     console.log(
-      '========================================'
+      '================================================'
     );
 
     console.log(
-      `🌐 Railway Health Server running on port ${PORT}`
+      '🌐 RAILWAY SERVER STARTED'
     );
 
     console.log(
-      `🔐 Auth Directory: ${AUTH_DIR}`
+      `🌐 Port: ${PORT}`
     );
 
     console.log(
-      '========================================'
+      `🔐 Auth: ${AUTH_DIR}`
     );
 
-    // Start WhatsApp
+    console.log(
+      '================================================'
+    );
+
+    console.log('');
+
+    // Start WhatsApp bot
     startBot();
+
   }
 );
