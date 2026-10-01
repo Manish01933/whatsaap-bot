@@ -3,7 +3,13 @@
  * Running with Baileys Multi-Device & Terminal QR Code (Zero Meta API Key)
  */
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason,
+  Browsers,
+  fetchLatestBaileysVersion
+} = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const express = require('express');
 const cors = require('cors');
@@ -27,6 +33,7 @@ function resolveAuthDirectory() {
   if (process.env.AUTH_DIR && process.env.AUTH_DIR.trim()) {
     return path.resolve(process.env.AUTH_DIR.trim());
   }
+  // Standard Railway persistent volume mounted at /app/data/auth_info
   const primaryDir = '/app/data/auth_info';
   try {
     if (!fs.existsSync(primaryDir)) {
@@ -34,6 +41,7 @@ function resolveAuthDirectory() {
     }
     return primaryDir;
   } catch {
+    // Local fallback for dev environments
     const fallbackDir = path.resolve(process.cwd(), 'data', 'auth_info');
     if (!fs.existsSync(fallbackDir)) {
       fs.mkdirSync(fallbackDir, { recursive: true });
@@ -44,24 +52,56 @@ function resolveAuthDirectory() {
 
 const AUTH_DIR = resolveAuthDirectory();
 
+// Ensure the auth directory exists without removing or recreating volume data
 if (!fs.existsSync(AUTH_DIR)) {
   fs.mkdirSync(AUTH_DIR, { recursive: true });
 }
 
 async function startBot() {
+  // Clean up any existing socket before opening a fresh connection
+  if (sock) {
+    try {
+      sock.ev.removeAllListeners('connection.update');
+      sock.ev.removeAllListeners('creds.update');
+      sock.ev.removeAllListeners('messages.upsert');
+      sock.end(undefined);
+    } catch (e) {}
+    sock = null;
+  }
+
   console.log('====================================================');
   console.log('🚀 Initializing WhatsApp Baileys 24/7 Bot on Railway...');
   console.log(`📁 Persistent Auth Directory: ${AUTH_DIR}`);
   console.log('====================================================');
 
   try {
+    // Saves and reuses authentication credentials from /app/data/auth_info
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
+    // Fetch latest WhatsApp Web version to avoid connection handshake rejections
+    const { version, isLatest } = await fetchLatestBaileysVersion().catch(() => ({
+      version: [2, 3000, 1015901307],
+      isLatest: false
+    }));
+
+    if (state.creds?.registered) {
+      console.log('🔑 Saved credentials detected. Reconnecting authenticated session...');
+    } else {
+      console.log('⚡ No active session credentials found. Generating QR code for login...');
+    }
+
+    // Initialize Baileys socket using canonical Ubuntu/Chrome browser identity
     sock = makeWASocket({
+      version,
       auth: state,
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
-      browser: ['DirectConnect 24/7 Bot', 'Chrome', '122.0.0']
+      browser: Browsers?.ubuntu ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '20.0.04'],
+      syncFullHistory: false,
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+      keepAliveIntervalMs: 10000,
+      markOnlineOnConnect: false
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -84,9 +124,10 @@ async function startBot() {
       // 2. Connection closed / disconnected handling
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+        const errorMessage = lastDisconnect?.error?.message || '';
+        const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
 
-        console.log(`⚠️ Connection closed. Status code: ${statusCode || 'unknown'}`);
+        console.log(`⚠️ Connection closed. Status code: ${statusCode || 'unknown'}, reason: ${errorMessage || 'none'}`);
 
         if (isLoggedOut) {
           currentStatus = 'LOGGED_OUT';
@@ -97,6 +138,11 @@ async function startBot() {
           setTimeout(() => {
             startBot();
           }, 3000);
+        } else if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+          console.log('🔄 Baileys restart required (handshake transition). Reconnecting...');
+          setTimeout(() => {
+            startBot();
+          }, 1500);
         } else {
           currentStatus = 'RECONNECTING';
           console.log('🔄 Temporary network drop. Reconnecting 24/7 daemon in 4 seconds...');
