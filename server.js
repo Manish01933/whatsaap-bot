@@ -3,6 +3,20 @@
  * Running with Baileys Multi-Device & Terminal QR Code (Zero Meta API Key)
  */
 
+// Node.js crypto module setup - MUST precede all Baileys and Signal imports
+const crypto = require('crypto');
+if (!global.crypto) {
+  global.crypto = crypto;
+}
+if (!globalThis.crypto) {
+  globalThis.crypto = crypto.webcrypto || crypto;
+}
+if (crypto.webcrypto && !global.crypto.subtle) {
+  try {
+    global.crypto.subtle = crypto.webcrypto.subtle;
+  } catch (e) {}
+}
+
 const {
   default: makeWASocket,
   useMultiFileAuthState,
