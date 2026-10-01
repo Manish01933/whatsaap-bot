@@ -1,7 +1,7 @@
 {
   "name": "railway-whatsapp-bot",
   "version": "1.0.0",
-  "description": "Zero-API 24/7 WhatsApp Bot with Baileys & Terminal QR for Railway",
+  "description": "Zero-API 24/7 WhatsApp Bot with Baileys & Browser Graphical QR for Railway",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -11,6 +11,7 @@
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "pino": "^9.6.0",
+    "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0"
   },
   "engines": {
